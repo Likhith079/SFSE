@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart File Search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0d0f0e;
+    --bg2:      #141816;
+    --bg3:      #1b1f1d;
+    --border:   #252b27;
+    --green:    #39e075;
+    --green-d:  #1a7a3a;
+    --green-g:  rgba(57,224,117,0.08);
+    --amber:    #f0a500;
+    --red:      #e05050;
+    --text:     #d4dbd6;
+    --muted:    #5a6860;
+    --mono:     'DM Mono', monospace;
+    --sans:     'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── Scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    padding: 36px 0 28px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    font-family: var(--sans);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--green);
+    letter-spacing: -0.5px;
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--muted); font-weight: 400; }
+
+  .tagline {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .header-stats {
+    margin-left: auto;
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .header-stats strong { color: var(--green); font-weight: 500; }
+
+  /* ── Index panel ── */
+  .index-panel {
+    margin-top: 28px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    background: var(--bg2);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-header .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    flex-shrink: 0;
+  }
+  .panel-header .dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+  .panel-body {
+    padding: 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .dir-input {
+    flex: 1;
+    min-width: 240px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 9px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .dir-input:focus { border-color: var(--green); }
+  .dir-input::placeholder { color: var(--muted); }
+
+  .btn {
+    padding: 9px 18px;
+    border: 1px solid;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--green);
+    border-color: var(--green);
+    color: #000;
+    font-weight: 500;
+  }
+  .btn-primary:hover { background: #5ef79a; border-color: #5ef79a; }
+  .btn-primary:disabled { background: var(--green-d); border-color: var(--green-d); color: #000; cursor: not-allowed; opacity: 0.6; }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--muted);
+  }
+  .btn-ghost:hover { border-color: var(--muted); color: var(--text); }
+
+  .btn-danger {
+    background: transparent;
+    border-color: #3a1a1a;
+    color: var(--red);
+  }
+  .btn-danger:hover { border-color: var(--red); }
+
+  .reindex-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .reindex-label input { accent-color: var(--green); cursor: pointer; }
+
+  /* ── Progress bar ── */
+  .progress-wrap {
+    margin: 0 16px 16px;
+    display: none;
+  }
+  .progress-wrap.visible { display: block; }
+  .progress-bar-track {
+    height: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    width: 0%;
+    transition: width 0.3s ease;
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+  @keyframes indeterminate {
+    0%   { margin-left: 0%;   width: 30%; }
+    50%  { margin-left: 60%;  width: 40%; }
+    100% { margin-left: 100%; width: 0%;  }
+  }
+  .progress-msg {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Search bar ── */
+  .search-wrap {
+    margin-top: 28px;
+    position: relative;
+  }
+
+  .search-prompt {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--green);
+    font-size: 16px;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .search-input {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 160px 16px 46px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .search-input:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px rgba(57,224,117,0.08);
+  }
+  .search-input::placeholder { color: var(--muted); }
+
+  .search-controls {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* ── Strategy tabs ── */
+  .strategy-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+  }
+
+  .strategy-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .strategy-btn:hover { border-color: var(--muted); color: var(--text); }
+  .strategy-btn.active {
+    background: var(--green-g);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .top-k-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .top-k-select {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 6px;
+    outline: none;
+  }
+
+  /* ── Meta bar ── */
+  .meta-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 24px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+    min-height: 24px;
+  }
+  .meta-bar .count { color: var(--green); font-weight: 500; }
+  .meta-bar .time  { font-size: 11px; }
+
+  /* ── Results ── */
+  .results {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 6px;
+  }
+
+  .result-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+    animation: fadeIn 0.2s ease both;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .result-card:hover {
+    border-color: var(--green-d);
+    background: #141f17;
+  }
+
+  .result-filename {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .result-filename .ext-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 400;
+    padding: 1px 6px;
+    border-radius: 2px;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  .ext-txt  { background: #1e2a3a; color: #5aabe0; border: 1px solid #1a3a5a; }
+  .ext-pdf  { background: #2a1a1a; color: #e06060; border: 1px solid #4a2020; }
+  .ext-docx { background: #1a2a1a; color: #60b060; border: 1px solid #204020; }
+
+  .result-path {
+    grid-column: 1;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .result-score-wrap {
+    grid-row: 1 / 3;
+    grid-column: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .score-bar-wrap {
+    width: 80px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  .score-num {
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .strategy-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .strategy-tag.fused   { color: var(--green); border-color: var(--green-d); }
+  .strategy-tag.tfidf   { color: #8ab0ff; border-color: #1a2a4a; }
+  .strategy-tag.semantic{ color: var(--amber); border-color: #3a2a00; }
+
+  /* ── Preview modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 100%;
+    max-width: 720px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+  }
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .modal-title {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 6px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-meta {
+    padding: 10px 20px;
+    font-size: 11px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    flex: 1;
+  }
+
+  /* ── Empty / error states ── */
+  .empty-state {
+    text-align: center;
+    padding: 60px 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 2;
+  }
+  .empty-state .big { font-size: 32px; opacity: 0.3; margin-bottom: 12px; }
+
+  .toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    border-radius: 4px;
+    padding: 12px 18px;
+    font-size: 13px;
+    color: var(--text);
+    z-index: 200;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.25s ease;
+    max-width: 320px;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.error { border-left-color: var(--red); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">SFSΕ <span>/</span> search</div>
+    <div class="tagline">local file intelligence</div>
+    <div class="header-stats" id="header-stats">
+      <span><strong id="stat-files">—</strong> files</span>
+      <span><strong id="stat-vocab">—</strong> terms</span>
+    </div>
+  </header>
+
+  <!-- Index panel -->
+  <div class="index-panel">
+    <div class="panel-header">
+      <span class="dot" id="index-dot"></span>
+      <span id="index-panel-title">Index</span>
+    </div>
+    <div class="panel-body">
+      <input type="text" class="dir-input" id="dir-input"
+             placeholder="/path/to/your/documents"
+             value="">
+      <button class="btn btn-primary" id="btn-index">Run Indexer</button>
+      <label class="reindex-label">
+        <input type="checkbox" id="reindex-cb"> reindex
+      </label>
+      <button class="btn btn-danger" id="btn-clear">Clear</button>
+    </div>
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      <div class="progress-msg" id="progress-msg">Indexing…</div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="search-wrap">
+    <span class="search-prompt">&gt;_</span>
+    <input type="text" class="search-input" id="search-input"
+           placeholder="Search files… (press Enter)"
+           autocomplete="off" spellcheck="false">
+    <div class="search-controls">
+      <button class="btn btn-primary" id="btn-search" style="padding:7px 16px">Search</button>
+    </div>
+  </div>
+
+  <!-- Strategy + top-k -->
+  <div class="strategy-row">
+    <button class="strategy-btn" data-s="keyword">keyword</button>
+    <button class="strategy-btn active" data-s="tfidf">tfidf</button>
+    <button class="strategy-btn" data-s="fuzzy">fuzzy</button>
+    <button class="strategy-btn" data-s="semantic">semantic</button>
+    <button class="strategy-btn" data-s="all">all (fused)</button>
+    <span class="top-k-label">
+      top
+      <select class="top-k-select" id="top-k-select">
+        <option value="5">5</option>
+        <option value="10" selected>10</option>
+        <option value="20">20</option>
+        <option value="50">50</option>
+      </select>
+    </span>
+  </div>
+
+  <!-- Results meta bar -->
+  <div class="meta-bar" id="meta-bar">
+    <span id="meta-count"></span>
+    <span id="meta-time" class="time"></span>
+  </div>
+
+  <!-- Results list -->
+  <div class="results" id="results"></div>
+
+</div>
+
+<!-- Preview modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Preview</span>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div class="modal-meta" id="modal-meta"></div>
+    <div class="modal-body" id="modal-body">Loading…</div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let currentStrategy = 'tfidf';
+let indexPollTimer  = null;
+let maxScore        = 1;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type === 'error' ? ' error' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+function extClass(ext) {
+  if (ext === '.txt')  return 'ext-txt';
+  if (ext === '.pdf')  return 'ext-pdf';
+  if (ext === '.docx') return 'ext-docx';
+  return '';
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('stat-files').textContent = d.total_files.toLocaleString();
+    document.getElementById('stat-vocab').textContent = d.vocabulary.toLocaleString();
+  } catch {}
+}
+loadStats();
+
+// ── Indexing ──────────────────────────────────────────────────────────────────
+document.getElementById('btn-index').addEventListener('click', startIndex);
+document.getElementById('btn-clear').addEventListener('click', clearIndex);
+
+async function startIndex() {
+  const dir     = document.getElementById('dir-input').value.trim();
+  const reindex = document.getElementById('reindex-cb').checked;
+  if (!dir) { toast('Enter a directory path', 'error'); return; }
+
+  const btn = document.getElementById('btn-index');
+  btn.disabled = true;
+
+  try {
+    const r = await fetch('/api/index', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ directory: dir, reindex }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Error starting indexer', 'error'); btn.disabled = false; return; }
+
+    document.getElementById('progress-wrap').classList.add('visible');
+    document.getElementById('index-dot').classList.add('amber');
+    document.getElementById('index-panel-title').textContent = 'Indexing…';
+    pollIndexStatus();
+  } catch (e) {
+    toast('Network error', 'error'); btn.disabled = false;
+  }
+}
+
+function pollIndexStatus() {
+  clearInterval(indexPollTimer);
+  indexPollTimer = setInterval(async () => {
+    try {
+      const r = await fetch('/api/index/status');
+      const d = await r.json();
+      document.getElementById('progress-msg').textContent = d.progress || 'Working…';
+
+      if (d.done) {
+        clearInterval(indexPollTimer);
+        document.getElementById('progress-wrap').classList.remove('visible');
+        document.getElementById('index-dot').classList.remove('amber');
+        document.getElementById('btn-index').disabled = false;
+
+        if (d.error) {
+          document.getElementById('index-panel-title').textContent = 'Index — error';
+          toast('Indexing failed: ' + d.error, 'error');
+        } else {
+          document.getElementById('index-panel-title').textContent = 'Index — complete';
+          const s = d.summary || {};
+          toast(`✓ Indexed ${s.indexed || 0} files (${s.skipped || 0} skipped)`);
+          loadStats();
+        }
+      }
+    } catch {}
+  }, 800);
+}
+
+async function clearIndex() {
+  if (!confirm('Clear the entire index?')) return;
+  try {
+    await fetch('/api/index', { method: 'DELETE' });
+    toast('Index cleared');
+    loadStats();
+    document.getElementById('results').innerHTML = '';
+    document.getElementById('meta-count').textContent = '';
+    document.getElementById('meta-time').textContent = '';
+    document.getElementById('index-panel-title').textContent = 'Index';
+  } catch { toast('Error clearing index', 'error'); }
+}
+
+// ── Strategy selection ────────────────────────────────────────────────────────
+document.querySelectorAll('.strategy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentStrategy = btn.dataset.s;
+  });
+});
+
+// ── Search ────────────────────────────────────────────────────────────────────
+document.getElementById('btn-search').addEventListener('click', doSearch);
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+async function doSearch() {
+  const q    = document.getElementById('search-input').value.trim();
+  const topK = document.getElementById('top-k-select').value;
+  if (!q) return;
+
+  const resultsEl = document.getElementById('results');
+  resultsEl.innerHTML = `<div class="empty-state"><div class="big">⬡</div>searching…</div>`;
+
+  try {
+    const url = `/api/search?q=${encodeURIComponent(q)}&strategy=${currentStrategy}&top_k=${topK}`;
+    const r   = await fetch(url);
+    const d   = await r.json();
+
+    if (!r.ok) { toast(d.error || 'Search error', 'error'); resultsEl.innerHTML = ''; return; }
+
+    renderResults(d);
+  } catch (e) {
+    toast('Network error', 'error');
+    resultsEl.innerHTML = '';
+  }
+}
+
+function renderResults(data) {
+  const metaCount = document.getElementById('meta-count');
+  const metaTime  = document.getElementById('meta-time');
+  const resultsEl = document.getElementById('results');
+
+  if (!data.results.length) {
+    metaCount.innerHTML = '<span>No results</span>';
+    metaTime.textContent = `${data.elapsed_ms}ms`;
+    resultsEl.innerHTML = `<div class="empty-state"><div class="big">∅</div>No files matched "<em>${data.query}</em>".<br>Try a different strategy or check your index.</div>`;
+    return;
+  }
+
+  metaCount.innerHTML = `<span class="count">${data.results.length}</span> result${data.results.length !== 1 ? 's' : ''}`;
+  metaTime.textContent = `${data.elapsed_ms}ms · ${data.strategy}`;
+
+  maxScore = Math.max(...data.results.map(r => r.score), 0.001);
+
+  resultsEl.innerHTML = '';
+  data.results.forEach((r, i) => {
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.style.animationDelay = (i * 30) + 'ms';
+
+    const pct = Math.round((r.score / maxScore) * 100);
+    const ext = r.ext || '';
+
+    card.innerHTML = `
+      <div class="result-filename">
+        <span class="ext-badge ${extClass(ext)}">${ext || 'file'}</span>${r.filename}
+      </div>
+      <div class="result-score-wrap">
+        <div class="score-bar-wrap">
+          <div class="score-bar-fill" style="width:${pct}%"></div>
+        </div>
+        <span class="score-num">${r.score.toFixed(4)}</span>
+        <span class="strategy-tag ${r.strategy}">${r.strategy}</span>
+      </div>
+      <div class="result-path">${r.path}</div>
+    `;
+
+    card.addEventListener('click', () => openPreview(r.file_id, r.filename, r.path));
+    resultsEl.appendChild(card);
+  });
+}
+
+// ── Preview modal ─────────────────────────────────────────────────────────────
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+async function openPreview(fileId, filename, path) {
+  document.getElementById('modal-title').textContent = filename;
+  document.getElementById('modal-meta').textContent  = path;
+  document.getElementById('modal-body').textContent  = 'Loading preview…';
+  document.getElementById('modal-overlay').classList.add('open');
+
+  try {
+    const r = await fetch(`/api/preview/${fileId}`);
+    const d = await r.json();
+    document.getElementById('modal-body').textContent = d.preview || '(empty file)';
+  } catch {
+    document.getElementById('modal-body').textContent = 'Could not load preview.';
+  }
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+</script>
+</body>
+</html>
